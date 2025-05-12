@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Firebase SDK (Modular Web version 9) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-analytics-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book of Aura</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    // Initialize Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyCMq-LlEtw_YavmjN-FsUzWmuSvn9blDKY",
+      authDomain: "book-of-aura.firebaseapp.com",
+      projectId: "book-of-aura",
+      databaseURL: "https://book-of-aura-default-rtdb.firebaseio.com", // Add this line for Realtime Database
+      storageBucket: "book-of-aura.appspot.com",
+      messagingSenderId: "658642528432",
+      appId: "1:658642528432:web:b2f5088d0818a1ed563375",
+      measurementId: "G-2T4C46J7SN"
+    };
+
+    // Initialize Firebase
+    const app = firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+    const analytics = firebase.analytics();
+
+    // Master edit mode variables
+    let masterEditMode = false;
+
+    // Trackers for individual edit modes
+    let newspaperEditEnabled = false;
+    let statsEditEnabled = false;
+    let auraPointsEditEnabled = {};
+    let financialRecordAccessed = {};
+    let criminalRecordAccessed = {};
+
+    function showExclusiveProfile(id) {
+      const membersSection = document.getElementById('members-section');
+      membersSection.classList.remove('hidden', 'grid', 'grid-cols-2');
+      membersSection.classList.add('flex', 'flex-col');
+
+      const profiles = document.querySelectorAll('[id^="profile-"]');
+      const buttons = document.querySelectorAll('.profile-button');
+
+      profiles.forEach(p => p.classList.add('hidden'));
+      buttons.forEach(b => b.classList.add('hidden'));
+
+      const profile = document.getElementById(id);
+      profile.classList.remove('hidden');
+    }
+
+    function toggleSection(id) {
+      const sections = ['members-section', 'newspaper-section', 'stats-section', 'history-section'];
+      sections.forEach(sectionId => {
+        const section = document.getElementById(sectionId);
+        if (sectionId === id) {
+          section.classList.remove('hidden');
+          if (id === 'members-section') {
+            section.classList.remove('flex', 'flex-col');
+            section.classList.add('grid', 'grid-cols-2', 'gap-4');
+            const buttons = document.querySelectorAll('.profile-button');
+            const profiles = document.querySelectorAll('[id^="profile-"]');
+            buttons.forEach(b => b.classList.remove('hidden'));
+            profiles.forEach(p => p.classList.add('hidden'));
+          }
+        } else {
+          section.classList.add('hidden');
+        }
+      });
+    }
+
+    function goToConstitution() {
+      window.open("https://docs.google.com/document/d/1JVLPCvDFRyE199hn1sWoTGmQ4NwJ9_QMe5UXqak98KQ/edit?usp=sharing", "_blank");
+    }
+
+    function goToHistory() {
+      window.open("https://docs.google.com/document/d/1G2pJxLm5_DIIRbR7Wln3lnvyegS8koOhivRFgqAI-Gw/edit?usp=sharing", "_blank");
+    }
+
+    function toggleMasterEditMode() {
+      const masterEditButton = document.getElementById('master-edit-button');
+
+      if (masterEditMode) {
+        // Exit Access All mode
+        const editableElements = document.querySelectorAll('[contenteditable="true"]');
+        editableElements.forEach(el => {
+          if (!el.classList.contains('always-editable')) {
+            el.setAttribute('contenteditable', 'false');
+          }
+        });
+
+        const records = document.querySelectorAll('[id^="financial-"], [id^="criminal-"]');
+        records.forEach(record => {
+          record.classList.add('hidden');
+          const placeholders = document.querySelectorAll('.financial-placeholder, .criminal-placeholder');
+          placeholders.forEach(p => p.classList.remove('hidden'));
+        });
+
+        saveAllChangesToFirebase(); // Save all changes when exiting master edit mode
+        masterEditButton.textContent = "Access All";
+        alert("Access All mode disabled. Changes saved.");
+        masterEditMode = false;
+        return;
+      }
+
+      const password = prompt("Enter master password to edit and access all:", "");
+      if (password === "ffpm2506") {
+        // Enter Access All mode
+        const editableElements = document.querySelectorAll('[contenteditable="false"]');
+        editableElements.forEach(el => el.setAttribute('contenteditable', 'true'));
+
+        const hiddenRecords = document.querySelectorAll('[id^="financial-"], [id^="criminal-"]');
+        hiddenRecords.forEach(record => {
+          record.classList.remove('hidden');
+          const placeholders = document.querySelectorAll('.financial-placeholder, .criminal-placeholder');
+          placeholders.forEach(p => p.classList.add('hidden'));
+        });
+
+        masterEditButton.textContent = "Exit Access All";
+        alert("Access All mode enabled. All content is now editable and accessible.");
+        masterEditMode = true;
+      } else {
+        alert("Incorrect master password!");
+      }
+    }
+
+    function toggleNewspaperEdit() {
+      const newspaperContent = document.getElementById('newspaper-content');
+      const eventsContent = document.getElementById('events-content');
+      const editButton = document.querySelector('#newspaper-section button');
+
+      if (newspaperEditEnabled) {
+        // Save mode
+        newspaperContent.contentEditable = "false";
+        eventsContent.contentEditable = "false";
+        editButton.textContent = "Edit";
+        
+        // Save changes to Firebase
+        database.ref('content/newspaper').set(newspaperContent.innerHTML);
+        database.ref('content/events').set(eventsContent.innerHTML);
+        
+        alert("Newspaper changes saved to cloud.");
+        newspaperEditEnabled = false;
+        return;
+      }
+
+      const password = prompt("Enter password to edit:", "");
+      if (password === "historian1808" || masterEditMode) {
+        // Edit mode
+        newspaperContent.contentEditable = "true";
+        eventsContent.contentEditable = "true";
+        editButton.textContent = "Save";
+        alert("Newspaper edit mode enabled. Click 'Save' to save changes.");
+        newspaperEditEnabled = true;
+      } else {
+        alert("Incorrect password!");
+      }
+    }
+
+    function toggleStatsEdit() {
+      const statsContent = document.getElementById('stats-content');
+      const editButton = document.querySelector('#stats-section button');
+
+      if (statsEditEnabled) {
+        // Save mode
+        statsContent.contentEditable = "false";
+        editButton.textContent = "Edit";
+        
+        // Save to Firebase
+        database.ref('content/stats').set(statsContent.innerHTML);
+        
+        alert("Stats changes saved to cloud.");
+        statsEditEnabled = false;
+        return;
+      }
+
+      const password = prompt("Enter password to edit:", "");
+      if (password === "analyst2503" || masterEditMode) {
+        // Edit mode
+        statsContent.contentEditable = "true";
+        editButton.textContent = "Save";
+        alert("Stats edit mode enabled. Click 'Save' to save changes.");
+        statsEditEnabled = true;
+      } else {
+        alert("Incorrect password!");
+      }
+    }
+
+    function toggleSingleAuraPointsEdit(memberId) {
+      const memberNumber = memberId.split('-')[1]; // Get P1, P2, etc.
+      const auraPoint = document.querySelector(`#${memberId} .aura-points`);
+      const editButton = document.querySelector(`#${memberId} .edit-points-button`);
+
+      if (auraPointsEditEnabled[memberId]) {
+        // Save mode
+        auraPoint.contentEditable = "false";
+        editButton.textContent = "Edit";
+        
+        // Save to Firebase
+        database.ref(`members/${memberNumber}/auraPoints`).set(auraPoint.innerHTML);
+        
+        alert("Aura Points saved to cloud.");
+        auraPointsEditEnabled[memberId] = false;
+        return;
+      }
+
+      const password = prompt("Enter password to edit Aura Points:", "");
+      if (password === "accountant2804" || masterEditMode) {
+        // Edit mode
+        auraPoint.contentEditable = "true";
+        editButton.textContent = "Save";
+        alert("Aura Points edit mode enabled. Click 'Save' when done.");
+        auraPointsEditEnabled[memberId] = true;
+      } else {
+        alert("Incorrect password!");
+      }
+    }
+
+    function toggleFinancialRecord(memberId) {
+      const memberNumber = memberId.split('-')[1];
+      const financialRecord = document.getElementById(`financial-${memberNumber}`);
+      const placeholder = document.querySelector(`#${memberId} .financial-placeholder`);
+      const accessButton = document.querySelector(`#${memberId} .access-financial-button`);
+
+      if (financialRecordAccessed[memberId]) {
+        // Save mode (hide and disable edit)
+        financialRecord.classList.add('hidden');
+        placeholder.classList.remove('hidden');
+        financialRecord.contentEditable = "false";
+        accessButton.textContent = "Access";
+        
+        // Save to Firebase
+        database.ref(`members/${memberNumber}/financialRecord`).set(financialRecord.innerHTML);
+        
+        alert("Financial record changes saved to cloud and hidden.");
+        financialRecordAccessed[memberId] = false;
+        return;
+      }
+
+      const password = prompt("Enter password to access Financial Record:", "");
+      if (password === "accountant2804" || masterEditMode) {
+        // Show mode (enable edit)
+        financialRecord.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+        financialRecord.contentEditable = "true";
+        accessButton.textContent = "Save";
+        financialRecordAccessed[memberId] = true;
+      } else {
+        alert("Access denied!");
+      }
+    }
+
+    function toggleCriminalRecord(memberId) {
+      const memberNumber = memberId.split('-')[1];
+      const criminalRecord = document.getElementById(`criminal-${memberNumber}`);
+      const placeholder = document.querySelector(`#${memberId} .criminal-placeholder`);
+      const accessButton = document.querySelector(`#${memberId} .access-criminal-button`);
+
+      if (criminalRecordAccessed[memberId]) {
+        // Save mode (hide and disable edit)
+        criminalRecord.classList.add('hidden');
+        placeholder.classList.remove('hidden');
+        criminalRecord.contentEditable = "false";
+        accessButton.textContent = "Access";
+        
+        // Save to Firebase
+        database.ref(`members/${memberNumber}/criminalRecord`).set(criminalRecord.innerHTML);
+        
+        alert("Criminal record changes saved to cloud and hidden.");
+        criminalRecordAccessed[memberId] = false;
+        return;
+      }
+
+      const password = prompt("Enter password to access Criminal Record:", "");
+      if (password === "notary0703" || masterEditMode) {
+        // Show mode (enable edit)
+        criminalRecord.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+        criminalRecord.contentEditable = "true";
+        accessButton.textContent = "Save";
+        criminalRecordAccessed[memberId] = true;
+      } else {
+        alert("Access denied!");
+      }
+    }
+    
+    // Function to save all editable content to Firebase
+    function saveAllChangesToFirebase() {
+      // Save newspaper and events content
+      const newspaperContent = document.getElementById('newspaper-content');
+      const eventsContent = document.getElementById('events-content');
+      const statsContent = document.getElementById('stats-content');
+      
+      database.ref('content/newspaper').set(newspaperContent.innerHTML);
+      database.ref('content/events').set(eventsContent.innerHTML);
+      database.ref('content/stats').set(statsContent.innerHTML);
+      
+      // Save aura points for all members
+      for (let i = 1; i <= 8; i++) {
+        const memberKey = `P${i}`;
+        const auraPoints = document.querySelector(`#profile-${memberKey} .aura-points`);
+        if (auraPoints) {
+          database.ref(`members/${memberKey}/auraPoints`).set(auraPoints.innerHTML);
+        }
+        
+        // Save financial and criminal records
+        const financial = document.getElementById(`financial-${memberKey}`);
+        const criminal = document.getElementById(`criminal-${memberKey}`);
+        
+        if (financial) {
+          database.ref(`members/${memberKey}/financialRecord`).set(financial.innerHTML);
+        }
+        
+        if (criminal) {
+          database.ref(`members/${memberKey}/criminalRecord`).set(criminal.innerHTML);
+        }
+      }
+      
+      console.log("All data saved to Firebase at " + new Date().toLocaleTimeString());
+      return true;
+    }
+    
+    // Function to load all saved content from Firebase
+    function loadAllDataFromFirebase() {
+      // Load newspaper and events content
+      database.ref('content/newspaper').once('value').then((snapshot) => {
+        const newspaperContent = snapshot.val();
+        if (newspaperContent) {
+          document.getElementById('newspaper-content').innerHTML = newspaperContent;
+        }
+      });
+      
+      database.ref('content/events').once('value').then((snapshot) => {
+        const eventsContent = snapshot.val();
+        if (eventsContent) {
+          document.getElementById('events-content').innerHTML = eventsContent;
+        }
+      });
+      
+      database.ref('content/stats').once('value').then((snapshot) => {
+        const statsContent = snapshot.val();
+        if (statsContent) {
+          document.getElementById('stats-content').innerHTML = statsContent;
+        }
+      });
+      
+      // Load member data
+      for (let i = 1; i <= 8; i++) {
+        const memberKey = `P${i}`;
+        
+        // Load aura points
+        database.ref(`members/${memberKey}/auraPoints`).once('value').then((snapshot) => {
+          const auraPoints = snapshot.val();
+          if (auraPoints) {
+            const auraElement = document.querySelector(`#profile-${memberKey} .aura-points`);
+            if (auraElement) {
+              auraElement.innerHTML = auraPoints;
+            }
+          }
+        });
+        
+        // Load financial record
+        database.ref(`members/${memberKey}/financialRecord`).once('value').then((snapshot) => {
+          const financialRecord = snapshot.val();
+          if (financialRecord) {
+            const financialElement = document.getElementById(`financial-${memberKey}`);
+            if (financialElement) {
+              financialElement.innerHTML = financialRecord;
+            }
+          }
+        });
+        
+        // Load criminal record
+        database.ref(`members/${memberKey}/criminalRecord`).once('value').then((snapshot) => {
+          const criminalRecord = snapshot.val();
+          if (criminalRecord) {
+            const criminalElement = document.getElementById(`criminal-${memberKey}`);
+            if (criminalElement) {
+              criminalElement.innerHTML = criminalRecord;
+            }
+          }
+        });
+      }
+      
+      console.log("Data loaded from Firebase at " + new Date().toLocaleTimeString());
+    }
+    
+    // Setup realtime listeners for data updates
+    function setupRealtimeListeners() {
+      // Listen for newspaper changes
+      database.ref('content/newspaper').on('value', (snapshot) => {
+        const newspaperContent = snapshot.val();
+        if (newspaperContent && !newspaperEditEnabled) {
+          document.getElementById('newspaper-content').innerHTML = newspaperContent;
+        }
+      });
+      
+      // Listen for events changes
+      database.ref('content/events').on('value', (snapshot) => {
+        const eventsContent = snapshot.val();
+        if (eventsContent && !newspaperEditEnabled) {
+          document.getElementById('events-content').innerHTML = eventsContent;
+        }
+      });
+      
+      // Listen for stats changes
+      database.ref('content/stats').on('value', (snapshot) => {
+        const statsContent = snapshot.val();
+        if (statsContent && !statsEditEnabled) {
+          document.getElementById('stats-content').innerHTML = statsContent;
+        }
+      });
+      
+      // Listen for member data changes
+      for (let i = 1; i <= 8; i++) {
+        const memberKey = `P${i}`;
+        
+        // Listen for aura points changes
+        database.ref(`members/${memberKey}/auraPoints`).on('value', (snapshot) => {
+          const auraPoints = snapshot.val();
+          if (auraPoints && !auraPointsEditEnabled[`profile-${memberKey}`]) {
+            const auraElement = document.querySelector(`#profile-${memberKey} .aura-points`);
+            if (auraElement) {
+              auraElement.innerHTML = auraPoints;
+            }
+          }
+        });
+        
+        // Financial and criminal records are more sensitive, so we only load them once
+        // and don't set up real-time listeners for those
+      }
+    }
+    
+    // Auto-save function that runs every hour
+    function setupAutoSave() {
+      setInterval(function() {
+        const changesMade = saveAllChangesToFirebase();
+        if (changesMade) {
+          console.log("Auto-saved content to Firebase at " + new Date().toLocaleTimeString());
+        }
+      }, 3600000); // 1 hour
+    }
+    
+    // On page load, set up everything
+    window.onload = function() {
+      loadAllDataFromFirebase();
+      setupRealtimeListeners();
+      setupAutoSave();
+    };
+  </script>
+</head>
+<body class="bg-gray-100 p-6 flex flex-col min-h-screen justify-between">
+  <div class="fixed top-4 right-4">
+  <button id="master-edit-button" onclick="toggleMasterEditMode()" class="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded text-sm">Access All</button>
+</div>
+  <div class="flex-grow">
+    <h1 class="text-3xl font-bold text-center mb-8">Book of Aura</h1>
+
+    <div id="members-section" class="hidden grid grid-cols-2 gap-4">
+      <button onclick="showExclusiveProfile('profile-P1')" class="profile-button bg-blue-200 hover:bg-blue-300 p-4 rounded shadow">Marvin</button>
+      <button onclick="showExclusiveProfile('profile-P2')" class="profile-button bg-blue-200 hover:bg-blue-300 p-4 rounded shadow">Mark</button>
+      <button onclick="showExclusiveProfile('profile-P3')" class="profile-button bg-blue-200 hover:bg-blue-300 p-4 rounded shadow">Yasser</button>
+      <button onclick="showExclusiveProfile('profile-P4')" class="profile-button bg-blue-200 hover:bg-blue-300 p-4 rounded shadow">Mayassi</button>
+      <button onclick="showExclusiveProfile('profile-P5')" class="profile-button bg-blue-200 hover:bg-blue-300 p-4 rounded shadow">Georges</button>
+      <button onclick="showExclusiveProfile('profile-P6')" class="profile-button bg-blue-200 hover:bg-blue-300 p-4 rounded shadow">Ghadi</button>
+      <button onclick="showExclusiveProfile('profile-P7')" class="profile-button bg-blue-200 hover:bg-blue-300 p-4 rounded shadow">Chris</button>
+      <button onclick="showExclusiveProfile('profile-P8')" class="profile-button bg-blue-200 hover:bg-blue-300 p-4 rounded shadow">Jose</button>
+
+      <div id="profile-P1" class="hidden bg-white p-4 rounded shadow">
+        <h2 contenteditable="false" class="text-2xl font-semibold text-center mb-4">Marvin</h2>
+        <p><strong>Party:</strong> <span contenteditable="false">Independent</span></p>
+        <p><strong>Position:</strong> <span contenteditable="false">President</span></p>
+        <p class="flex justify-between items-center">
+          <span><strong>Aura Points:</strong> <span class="aura-points" contenteditable="false">1540</span></span>
+          <button onclick="toggleSingleAuraPointsEdit('profile-P1')" class="edit-points-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Edit</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Financial Record:</strong> <span id="financial-P1" class="hidden" contenteditable="false">Clean</span><span class="financial-placeholder">[Hidden]</span></span>
+          <button onclick="toggleFinancialRecord('profile-P1')" class="access-financial-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Criminal Record:</strong> <span id="criminal-P1" class="hidden" contenteditable="false">None</span><span class="criminal-placeholder">[Hidden]</span></span>
+          <button onclick="toggleCriminalRecord('profile-P1')" class="access-criminal-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+      </div>
+
+      <div id="profile-P2" class="hidden bg-white p-4 rounded shadow">
+        <h2 contenteditable="false" class="text-2xl font-semibold text-center mb-4">Mark</h2>
+        <p><strong>Party:</strong> <span contenteditable="false">Party A</span></p>
+        <p><strong>Position:</strong> <span contenteditable="false">Vice President</span></p>
+        <p class="flex justify-between items-center">
+          <span><strong>Aura Points:</strong> <span class="aura-points" contenteditable="false">1310</span></span>
+          <button onclick="toggleSingleAuraPointsEdit('profile-P2')" class="edit-points-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Edit</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Financial Record:</strong> <span id="financial-P2" class="hidden" contenteditable="false">Clean</span><span class="financial-placeholder">[Hidden]</span></span>
+          <button onclick="toggleFinancialRecord('profile-P2')" class="access-financial-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Criminal Record:</strong> <span id="criminal-P2" class="hidden" contenteditable="false">None</span><span class="criminal-placeholder">[Hidden]</span></span>
+          <button onclick="toggleCriminalRecord('profile-P2')" class="access-criminal-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+      </div>
+
+      <div id="profile-P3" class="hidden bg-white p-4 rounded shadow">
+        <h2 contenteditable="false" class="text-2xl font-semibold text-center mb-4">Yasser</h2>
+        <p><strong>Party:</strong> <span contenteditable="false">Party B</span></p>
+        <p><strong>Position:</strong> <span contenteditable="false">Treasurer</span></p>
+        <p class="flex justify-between items-center">
+          <span><strong>Aura Points:</strong> <span class="aura-points" contenteditable="false">1200</span></span>
+          <button onclick="toggleSingleAuraPointsEdit('profile-P3')" class="edit-points-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Edit</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Financial Record:</strong> <span id="financial-P3" class="hidden" contenteditable="false">Clean</span><span class="financial-placeholder">[Hidden]</span></span>
+          <button onclick="toggleFinancialRecord('profile-P3')" class="access-financial-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Criminal Record:</strong> <span id="criminal-P3" class="hidden" contenteditable="false">None</span><span class="criminal-placeholder">[Hidden]</span></span>
+          <button onclick="toggleCriminalRecord('profile-P3')" class="access-criminal-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+      </div>
+
+      <div id="profile-P4" class="hidden bg-white p-4 rounded shadow">
+        <h2 contenteditable="false" class="text-2xl font-semibold text-center mb-4">Mayassi</h2>
+        <p><strong>Party:</strong> <span contenteditable="false">Party C</span></p>
+        <p><strong>Position:</strong> <span contenteditable="false">Secretary</span></p>
+        <p class="flex justify-between items-center">
+          <span><strong>Aura Points:</strong> <span class="aura-points" contenteditable="false">1445</span></span>
+          <button onclick="toggleSingleAuraPointsEdit('profile-P4')" class="edit-points-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Edit</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Financial Record:</strong> <span id="financial-P4" class="hidden" contenteditable="false">Clean</span><span class="financial-placeholder">[Hidden]</span></span>
+          <button onclick="toggleFinancialRecord('profile-P4')" class="access-financial-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Criminal Record:</strong> <span id="criminal-P4" class="hidden" contenteditable="false">None</span><span class="criminal-placeholder">[Hidden]</span></span>
+          <button onclick="toggleCriminalRecord('profile-P4')" class="access-criminal-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+      </div>
+
+      <div id="profile-P5" class="hidden bg-white p-4 rounded shadow">
+        <h2 contenteditable="false" class="text-2xl font-semibold text-center mb-4">Georges</h2>
+        <p><strong>Party:</strong> <span contenteditable="false">Party A</span></p>
+        <p><strong>Position:</strong> <span contenteditable="false">Member</span></p>
+        <p class="flex justify-between items-center">
+          <span><strong>Aura Points:</strong> <span class="aura-points" contenteditable="false">1105</span></span>
+          <button onclick="toggleSingleAuraPointsEdit('profile-P5')" class="edit-points-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Edit</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Financial Record:</strong> <span id="financial-P5" class="hidden" contenteditable="false">Clean</span><span class="financial-placeholder">[Hidden]</span></span>
+          <button onclick="toggleFinancialRecord('profile-P5')" class="access-financial-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Criminal Record:</strong> <span id="criminal-P5" class="hidden" contenteditable="false">None</span><span class="criminal-placeholder">[Hidden]</span></span>
+          <button onclick="toggleCriminalRecord('profile-P5')" class="access-criminal-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+      </div>
+      <div id="profile-P6" class="hidden bg-white p-4 rounded shadow">
+        <h2 contenteditable="false" class="text-2xl font-semibold text-center mb-4">Ghadi</h2>
+        <p><strong>Party:</strong> <span contenteditable="false">Party B</span></p>
+        <p><strong>Position:</strong> <span contenteditable="false">Member</span></p>
+        <p class="flex justify-between items-center">
+          <span><strong>Aura Points:</strong> <span class="aura-points" contenteditable="false">1380</span></span>
+          <button onclick="toggleSingleAuraPointsEdit('profile-P6')" class="edit-points-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Edit</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Financial Record:</strong> <span id="financial-P6" class="hidden" contenteditable="false">Clean</span><span class="financial-placeholder">[Hidden]</span></span>
+          <button onclick="toggleFinancialRecord('profile-P6')" class="access-financial-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Criminal Record:</strong> <span id="criminal-P6" class="hidden" contenteditable="false">None</span><span class="criminal-placeholder">[Hidden]</span></span>
+          <button onclick="toggleCriminalRecord('profile-P6')" class="access-criminal-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+      </div>
+
+      <div id="profile-P7" class="hidden bg-white p-4 rounded shadow">
+        <h2 contenteditable="false" class="text-2xl font-semibold text-center mb-4">Chris</h2>
+        <p><strong>Party:</strong> <span contenteditable="false">Independent</span></p>
+        <p><strong>Position:</strong> <span contenteditable="false">Member</span></p>
+        <p class="flex justify-between items-center">
+          <span><strong>Aura Points:</strong> <span class="aura-points" contenteditable="false">1275</span></span>
+          <button onclick="toggleSingleAuraPointsEdit('profile-P7')" class="edit-points-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Edit</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Financial Record:</strong> <span id="financial-P7" class="hidden" contenteditable="false">Clean</span><span class="financial-placeholder">[Hidden]</span></span>
+          <button onclick="toggleFinancialRecord('profile-P7')" class="access-financial-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Criminal Record:</strong> <span id="criminal-P7" class="hidden" contenteditable="false">None</span><span class="criminal-placeholder">[Hidden]</span></span>
+          <button onclick="toggleCriminalRecord('profile-P7')" class="access-criminal-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+      </div>
+
+      <div id="profile-P8" class="hidden bg-white p-4 rounded shadow">
+        <h2 contenteditable="false" class="text-2xl font-semibold text-center mb-4">Jose</h2>
+        <p><strong>Party:</strong> <span contenteditable="false">Party C</span></p>
+        <p class="flex justify-between items-center">
+          <span><strong>Aura Points:</strong> <span class="aura-points" contenteditable="false">1325</span></span>
+          <button onclick="toggleSingleAuraPointsEdit('profile-P8')" class="edit-points-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Edit</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Financial Record:</strong> <span id="financial-P8" class="hidden" contenteditable="false">Clean</span><span class="financial-placeholder">[Hidden]</span></span>
+          <button onclick="toggleFinancialRecord('profile-P8')" class="access-financial-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+        <p class="flex justify-between items-center">
+          <span><strong>Criminal Record:</strong> <span id="criminal-P8" class="hidden" contenteditable="false">None</span><span class="criminal-placeholder">[Hidden]</span></span>
+          <button onclick="toggleCriminalRecord('profile-P8')" class="access-criminal-button text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs">Access</button>
+        </p>
+      </div>
+    </div>
+    <div id="newspaper-section" class="hidden mt-8">
+      <div class="bg-white rounded-xl shadow p-4 mb-4 relative">
+        <div class="flex justify-between items-center mb-2">
+          <h2 class="text-xl font-semibold">Daily Newspaper</h2>
+          <button onclick="toggleNewspaperEdit()" class="text-xs text-gray-500 hover:text-gray-700">Edit</button>
+        </div>
+        <p id="newspaper-content" contenteditable="false" class="text-gray-700">All students are expected to attend the assembly at 8:00 AM tomorrow.</p>
+      </div>
+      <div class="bg-white rounded-xl shadow p-4 relative">
+        <div class="flex justify-between items-center mb-2">
+          <h2 class="text-xl font-semibold">Upcoming Events</h2>
+        </div>
+        <ul id="events-content" contenteditable="false" class="list-disc list-inside text-gray-700">
+          <li>Science Fair - May 10</li>
+          <li>Sports Day - May 18</li>
+          <li>Art Exhibition - May 25</li>
+        </ul>
+      </div>
+    </div>
+
+    <div id="stats-section" class="hidden mt-8">
+      <div class="bg-white rounded-xl shadow p-4">
+        <div class="flex justify-between items-center mb-2">
+          <h2 class="text-xl font-semibold">Stats</h2>
+          <button onclick="toggleStatsEdit()" class="text-xs text-gray-500 hover:text-gray-700">Edit</button>
+        </div>
+        <p id="stats-content" contenteditable="false" class="text-gray-600">(Currently empty)</p>
+      </div>
+    </div>
+
+    <div id="history-section" class="hidden mt-8">
+      <div class="bg-white rounded-xl shadow p-4">
+        <h2 class="text-xl font-semibold mb-4">History</h2>
+        <button onclick="goToHistory()" class="bg-blue-100 hover:bg-blue-200 p-3 rounded shadow w-full">Access History Document</button>
+      </div>
+    </div>
+  </div>
+
+  <footer class="bg-white rounded-xl shadow p-4 flex justify-center gap-6 mt-8 flex-wrap">
+    <button onclick="goToConstitution()" class="text-lg font-semibold text-purple-700">Constitution</button>
+    <button onclick="toggleSection('members-section')" class="text-lg font-semibold text-green-700">Members</button>
+    <button onclick="toggleSection('newspaper-section')" class="text-lg font-semibold text-blue-700">Newspaper</button>
+    <button onclick="toggleSection('stats-section')" class="text-lg font-semibold text-red-700">Stats</button>
+    <button onclick="goToHistory()" class="text-lg font-semibold text-yellow-700">History</button>
+  </footer>
+  
+  <!-- JavaScript to save and load changes -->
+  <script>
+    // Function to save content to Local Storage
+   function saveContentToLocalStorage(sectionId) {
+  const section = document.getElementById(sectionId);
+  if (section) {
+    const currentContent = section.innerHTML;
+
+    // Compare current content with the last saved content
+    if (lastSavedContent[sectionId] !== currentContent) {
+      localStorage.setItem(sectionId, currentContent); // Save to localStorage
+      lastSavedContent[sectionId] = currentContent; // Update the last saved content
+      console.log(`Content for ${sectionId} updated in localStorage.`);
+      return true; // Indicate that a change was made
+    }
+  }
+  return false; // No changes were made
+}
+
+    // Function to load content from Local Storage
+    function loadContentFromLocalStorage(sectionId) {
+      const savedContent = localStorage.getItem(sectionId);
+      if (savedContent) {
+        const section = document.getElementById(sectionId);
+        section.innerHTML = savedContent;
+      }
+    }
+
+    // Save all editable sections to Local Storage
+    function saveAllChanges() {
+  const editableSections = [
+    'newspaper-content',
+    'events-content',
+    // Add other section IDs that you want to save
+  ];
+
+  let changesMade = false; // Track if changes were made
+  editableSections.forEach(sectionId => {
+    const changeDetected = saveContentToLocalStorage(sectionId); // Check for changes
+    if (changeDetected) {
+      changesMade = true; // Mark true if any section changes
+    }
+  });
+
+  if (changesMade) {
+    alert("Changes saved successfully!"); // Show alert only if changes occurred
+  } else {
+    console.log("No changes detected. Skipping save.");
+  }
+  return changesMade; // Return whether changes were made
+}
+
+    // Load all saved content from Local Storage
+    function loadAllChanges() {
+  const editableSections = [
+    'newspaper-content',
+    'events-content',
+    // Add other section IDs that you want to load
+  ];
+  editableSections.forEach(sectionId => {
+    const savedContent = localStorage.getItem(sectionId);
+    if (savedContent) {
+      const section = document.getElementById(sectionId);
+      section.innerHTML = savedContent;
+      lastSavedContent[sectionId] = savedContent; // Initialize last saved content
+    }
+  });
+}
+
+    // Call the loadAllChanges function when the page loads
+    document.addEventListener('DOMContentLoaded', loadAllChanges);
+  </script>
+</body>
+</html>
